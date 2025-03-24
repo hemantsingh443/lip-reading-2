@@ -454,11 +454,11 @@ def visualize_frame():
         plt.axis('off')
         
         # Add frame statistics
-        frame_stats = analyze_frame(frames[frame_idx])
+        frame_stats, magnitude = analyze_frame(frames[frame_idx])
         plt.figtext(0.02, 0.02, 
-                   f'Mean Intensity: {frame_stats["mean"]:.2f}\n'
-                   f'Std Dev: {frame_stats["std"]:.2f}\n'
-                   f'Max Movement: {frame_stats["max"]:.2f}',
+                   f'Mean Intensity: {frame_stats["mean_intensity"]:.2f}\n'
+                   f'Std Dev: {frame_stats["std_dev"]:.2f}\n'
+                   f'Max Movement: {frame_stats["max_movement"]:.2f}',
                    fontsize=8, bbox=dict(facecolor='white', alpha=0.8))
         
         # Save to buffer
@@ -480,36 +480,37 @@ def visualize_frame():
         return jsonify({'error': str(e)}), 500
 
 def analyze_frame(frame):
-    """Analyze a single frame and return statistics"""
+    """Analyze a single frame for lip movement and statistics"""
     try:
-        # Calculate basic statistics
-        mean = float(np.mean(frame))
-        std = float(np.std(frame))
-        max_val = float(np.max(frame))
-        min_val = float(np.min(frame))
+        # Convert tensor to numpy array if needed
+        if isinstance(frame, tf.Tensor):
+            frame = frame.numpy()
         
-        # Calculate movement intensity (gradient magnitude)
-        sobelx = cv2.Sobel(frame, cv2.CV_64F, 1, 0, ksize=3)
-        sobely = cv2.Sobel(frame, cv2.CV_64F, 0, 1, ksize=3)
-        gradient_magnitude = np.sqrt(sobelx**2 + sobely**2)
-        movement = float(np.mean(gradient_magnitude))
+        # Ensure frame is in the correct format for OpenCV
+        frame = frame.astype(np.float32)
+        if frame.ndim == 3 and frame.shape[-1] == 1:
+            frame = frame.squeeze(-1)  # Remove single channel dimension
+            
+        # Calculate gradients using Sobel
+        grad_x = cv2.Sobel(frame, cv2.CV_32F, 1, 0, ksize=3)
+        grad_y = cv2.Sobel(frame, cv2.CV_32F, 0, 1, ksize=3)
         
-        return {
-            'mean': mean,
-            'std': std,
-            'max': max_val,
-            'min': min_val,
-            'movement': movement
+        # Calculate magnitude of gradients
+        magnitude = np.sqrt(grad_x**2 + grad_y**2)
+        
+        # Calculate statistics
+        stats = {
+            'mean_intensity': float(np.mean(frame)),
+            'std_dev': float(np.std(frame)),
+            'max_movement': float(np.max(magnitude)),
+            'movement_intensity': float(np.mean(magnitude))
         }
+        
+        return stats, magnitude
+        
     except Exception as e:
         print(f"Error in analyze_frame: {str(e)}")
-        return {
-            'mean': 0.0,
-            'std': 0.0,
-            'max': 0.0,
-            'min': 0.0,
-            'movement': 0.0
-        }
+        return None, None
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
